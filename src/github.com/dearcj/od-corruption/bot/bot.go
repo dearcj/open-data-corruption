@@ -18,6 +18,8 @@ type Bot struct {
 }
 
 func (b *Bot) Start(creds *Credentials, logger *zap.Logger) *Bot {
+	logger.Info("", zap.Any("Creds", creds))
+
 	config := oauth1.NewConfig(creds.ConsumerKey, creds.ConsumerSecret)
 	token := oauth1.NewToken(creds.AccessToken, creds.AccessTokenSecret)
 	httpClient := config.Client(oauth1.NoContext, token)
