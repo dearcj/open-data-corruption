@@ -10,8 +10,12 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type Datas struct {
@@ -20,8 +24,8 @@ type Datas struct {
 }
 
 type Data struct {
-	XMLName xml.Name  `xml:"DATA"`
-	Records []*Record `xml:"RECORD"`
+	XMLName xml.Name   `xml:"DATA"`
+	Records RecordList `xml:"RECORD"`
 }
 
 type Codex struct {
@@ -31,6 +35,102 @@ type Codex struct {
 
 type DateFormat struct {
 	time.Time
+}
+
+type RecordList []Record
+
+func (c RecordList) GetRandom() *Record {
+	inx := rand.Int() % len(c)
+	println(inx)
+	return &c[inx]
+}
+
+func RemoveInsideBrackets(s string) string {
+	inside := false
+
+	space := regexp.MustCompile(`\s+`)
+	s = space.ReplaceAllString(s, " ")
+	space = regexp.MustCompile(`\'+`)
+	s = space.ReplaceAllString(s, "'")
+
+	s = strings.Replace(s, "\n", s, -1)
+	s = strings.Replace(s, "  .", ".", -1)
+	s = strings.Replace(s, ". ", " ", -1)
+	s = strings.Replace(s, " ,", ",", -1)
+	s = strings.Replace(s, " грн", "грн", -1)
+	s = strings.Replace(s, " гривень", "грн", -1)
+	s = strings.Replace(s, ",00", "", -1)
+	s = strings.Replace(s, " неоподатковуваних", " ", -1)
+	s = strings.Replace(s, " неоподаткованих", " ", -1)
+
+	s = strings.Replace(s, " -", " ", -1)
+
+	newstr := ""
+	for _, v := range s {
+		if v == '(' || v == '/' {
+			inside = true
+			continue
+		}
+
+		if !inside {
+			newstr = newstr + string(v)
+		}
+		if v == ')' || v == '/' {
+			inside = false
+		}
+
+	}
+
+	return newstr
+}
+
+func ShortStatement(s string) string {
+	s = strings.Replace(s, " Стаття ", "с", -1)
+	s = strings.Replace(s, " cтаття ", "с", -1)
+	return s
+}
+
+func ShortJob(s string) string {
+	res := strings.Split(s, " ")
+	if len(res) > 3 {
+		return res[0] + " " + res[1] + " " + res[2]
+	} else {
+		return s
+	}
+}
+
+func RemoveLastName(s string) string {
+	res := strings.Split(s, " ")
+	if len(res) > 2 {
+		return res[0] + " " + res[1]
+	} else {
+		return s
+	}
+}
+
+func (r *Record) EnoughData() bool {
+	name := r.FIO
+	jp := r.JobPost
+	article := r.Codex.Article
+	st := r.Punishment
+	return len(name) > 0 && len(jp) > 0 && len(article) > 0 && len(st) > 0
+}
+
+func (r *Record) ToTweet() string {
+	name := r.FIO
+	jp := r.JobPost
+	article := r.Codex.Article
+	st := r.Punishment
+	result := RemoveInsideBrackets(RemoveInsideBrackets(RemoveLastName(name)) + " " +
+		ShortJob(RemoveInsideBrackets(jp)) + " " +
+		RemoveInsideBrackets(ShortStatement(article)) + " " +
+		RemoveInsideBrackets(st))
+
+	if utf8.RuneCountInString(result) > 240 {
+		return string([]rune(result)[:238]) + ".."
+	} else {
+		return result
+	}
 }
 
 func (c *DateFormat) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
@@ -105,6 +205,7 @@ func execMining(logger *zap.Logger, link string, output chan *Data) {
 }
 
 func StartMining(logger *zap.Logger, link string, interval time.Duration) (chan struct{}, chan *Data) {
+	rand.Seed(time.Now().Unix())
 	var done = make(chan struct{})
 	var onRecieve = make(chan *Data, 1)
 
@@ -123,10 +224,8 @@ func StartMining(logger *zap.Logger, link string, interval time.Duration) (chan 
 				execMining(logger, link, onRecieve)
 				timer.Reset(interval)
 				break
-
 			}
 		}
-
 	}()
 
 	return done, onRecieve

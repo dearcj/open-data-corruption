@@ -1,8 +1,41 @@
 package bot
 
-type Bot struct {
+import (
+	"github.com/dghubble/go-twitter/twitter"
+	"github.com/dghubble/oauth1"
+	"go.uber.org/zap"
+)
+
+type Credentials struct {
+	ConsumerKey       string
+	ConsumerSecret    string
+	AccessToken       string
+	AccessTokenSecret string
 }
 
-func New() (*Bot, error) {
-	return &Bot{}, nil
+type Bot struct {
+	client *twitter.Client
+}
+
+func (b *Bot) Start(creds *Credentials, logger *zap.Logger) *Bot {
+	config := oauth1.NewConfig(creds.ConsumerKey, creds.ConsumerSecret)
+	token := oauth1.NewToken(creds.AccessToken, creds.AccessTokenSecret)
+	httpClient := config.Client(oauth1.NoContext, token)
+
+	b.client = twitter.NewClient(httpClient)
+	return b
+}
+func (b *Bot) Post(s string, l *zap.Logger) error {
+	l.Info("Posting", zap.String("tweet", s))
+
+	_, _, err := b.client.Statuses.Update(s, nil)
+	if err != nil {
+		l.Error("Can't update status", zap.Error(err))
+	}
+
+	return err
+}
+
+func New() *Bot {
+	return &Bot{}
 }

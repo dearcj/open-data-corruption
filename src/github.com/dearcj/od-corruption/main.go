@@ -2,7 +2,8 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/dearcj/od-corruption/bot"
+	"flag"
+	botpackage "github.com/dearcj/od-corruption/bot"
 	"github.com/dearcj/od-corruption/miner"
 	"go.uber.org/zap"
 	"io/ioutil"
@@ -21,44 +22,60 @@ func main() {
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
-	b, err := ioutil.ReadFile("cached_data.json") // just pass the file name
-	if err != nil {
-		logger.Error("Can't open cache file", zap.Error(err))
-	}
-
 	f, err := os.OpenFile("cached_data.json", os.O_RDONLY|os.O_CREATE, 0666)
 	if err != nil {
 		logger.Error("Can't open cache file", zap.Error(err))
 	}
 
+	b, err := ioutil.ReadFile("cached_data.json") // just pass the file name
+	if err != nil {
+		logger.Error("Can't open cache file", zap.Error(err))
+	}
+
 	cachedPosts, _ := readCachedPosts(b)
-	cachedPosts.PostIds = append(cachedPosts.PostIds, 22, 33, 44)
 
 	defer f.Close()
 	defer saveCache(f, cachedPosts)
 
-	_, err = bot.New()
+	accessToken := flag.String("ACCESS_TOKEN", "", "access token")
+	accessTokenSecret := flag.String("ACCESS_TOKEN_SECRET", "", "access token")
+	consumerKey := flag.String("CONSUMER_KEY", "", "access token")
+	consumerSecret := flag.String("CONSUMER_SECRET", "", "access token")
+	flag.Parse()
+
+	bot := botpackage.New().Start(&botpackage.Credentials{
+		AccessToken:       *accessToken,
+		AccessTokenSecret: *accessTokenSecret,
+		ConsumerKey:       *consumerKey,
+		ConsumerSecret:    *consumerSecret,
+	}, logger)
+
 	if err != nil {
 		logger.Error("Can't create a twitter bot", zap.Error(err))
 	}
 
-	killMiner, parsed := miner.StartMining(logger, OpenDataLink, time.Minute)
+	_, parsed := miner.StartMining(logger, OpenDataLink, time.Minute)
 
-	go func() {
-		for {
-			data := <-parsed
-			filterRecords(data, time.Date(2018, 1, 1, 0, 0, 0, 0, time.UTC))
-			sortRecords(data)
-			excludeSent(data, cachedPosts.PostIds)
+	for {
+		data := <-parsed
+		filterRecords(data, time.Date(2019, 2, 20, 0, 0, 0, 0, time.UTC))
+		sortRecords(data)
+		excludeSent(data, cachedPosts.PostIds)
+		if len(data.Records) > 0 {
+			rec := data.Records[0]
+			err := bot.Post(rec.ToTweet(), logger)
+			if err == nil {
+				cachedPosts.PostIds = append(cachedPosts.PostIds, rec.RegNum)
+				saveCache(f, cachedPosts)
+			}
 		}
-	}()
 
-	time.Sleep(time.Second * 3)
-	killMiner <- struct{}{}
+	}
+
 }
 
 func excludeSent(d *miner.Data, toexclude []int) {
-	var recs []*miner.Record
+	var recs []miner.Record
 	var exclude = make(map[int]struct{})
 	for _, v := range toexclude {
 		exclude[v] = struct{}{}
@@ -76,9 +93,9 @@ func excludeSent(d *miner.Data, toexclude []int) {
 }
 
 func filterRecords(d *miner.Data, afterTime time.Time) {
-	var recs []*miner.Record
+	var recs []miner.Record
 	for _, x := range d.Records {
-		if x.Date.After(afterTime) {
+		if x.EnoughData() && x.Date.After(afterTime) {
 			recs = append(recs, x)
 		}
 	}
@@ -87,7 +104,7 @@ func filterRecords(d *miner.Data, afterTime time.Time) {
 }
 
 func readCachedPosts(b []byte) (*CachedPosts, error) {
-	var cachedPosts *CachedPosts = &CachedPosts{}
+	var cachedPosts = &CachedPosts{}
 
 	if len(b) != 0 {
 		err := json.Unmarshal(b, cachedPosts)
