@@ -9,4 +9,4 @@ EXPOSE 80 443
 
 RUN go install github.com/dearcj/od-corruption/
 
-ENTRYPOINT /go/bin/od-corruption $OPT
+ENTRYPOINT ["/go/bin/od-corruption $OPT"]
