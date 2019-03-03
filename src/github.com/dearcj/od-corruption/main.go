@@ -43,6 +43,11 @@ func main() {
 	consumerSecret := flag.String("CONSUMER_SECRET", "", "access token")
 	flag.Parse()
 
+	if *accessToken == "" || *accessTokenSecret == "" || *consumerKey == "" || *consumerSecret == "" {
+		logger.Error("No access tokens")
+		os.Exit(0)
+	}
+
 	bot := botpackage.New().Start(&botpackage.Credentials{
 		AccessToken:       *accessToken,
 		AccessTokenSecret: *accessTokenSecret,
@@ -54,7 +59,7 @@ func main() {
 		logger.Error("Can't create a twitter bot", zap.Error(err))
 	}
 
-	_, parsed := miner.StartMining(logger, OpenDataLink, time.Minute)
+	_, parsed := miner.StartMining(logger, OpenDataLink, 3*time.Hour)
 
 	for {
 		data := <-parsed
