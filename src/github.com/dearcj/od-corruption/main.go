@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	botpackage "github.com/dearcj/od-corruption/bot"
 	"github.com/dearcj/od-corruption/miner"
 	"github.com/go-redis/redis"
+	"github.com/karrick/tparse/v2"
 	"go.uber.org/zap"
 	"os"
 	"sort"
@@ -18,6 +20,14 @@ type CachedPosts struct {
 	PostIds []int `json:"post_ids"`
 }
 
+func fmtDuration(d time.Duration) string {
+	d = d.Round(time.Minute)
+	h := d / time.Hour
+	d -= h * time.Hour
+	m := d / time.Minute
+	return fmt.Sprintf("%02d:%02d", h, m)
+}
+
 func main() {
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
@@ -28,7 +38,15 @@ func main() {
 	consumerSecret := flag.String("CONSUMER_SECRET", "", "access token")
 	redisAddress := flag.String("REDIS_ADDRESS", "localhost:6379", "redis database server")
 	redisPassword := flag.String("REDIS_PASSWORD", "", "redis database server")
+	delay := flag.String("DELAY", "30s", "redis database server")
+
 	flag.Parse()
+
+	restime, err := tparse.AddDuration(time.Unix(0, 0), *delay)
+	if err != nil {
+		logger.Error("Could not parse bot delay")
+		panic(err)
+	}
 
 	client := redis.NewClient(&redis.Options{
 		Addr:     *redisAddress,
@@ -36,7 +54,7 @@ func main() {
 		DB:       0,
 	})
 
-	_, err := client.Ping().Result()
+	_, err = client.Ping().Result()
 	if err != nil {
 		panic(err)
 	}
@@ -65,7 +83,7 @@ func main() {
 		logger.Error("Can't create a twitter bot", zap.Error(err))
 	}
 
-	_, parsed := miner.StartMining(logger, OpenDataLink, 1*time.Minute)
+	_, parsed := miner.StartMining(logger, OpenDataLink, time.Duration(restime.UnixNano()))
 
 	for {
 		data := <-parsed
