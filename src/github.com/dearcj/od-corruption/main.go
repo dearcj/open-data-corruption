@@ -54,7 +54,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	_ = botpackage.New().Start(&botpackage.Credentials{
+	bot := botpackage.New().Start(&botpackage.Credentials{
 		AccessToken:       *accessToken,
 		AccessTokenSecret: *accessTokenSecret,
 		ConsumerKey:       *consumerKey,
@@ -74,18 +74,19 @@ func main() {
 		excludeSent(data, cachedPosts.PostIds)
 		if len(data.Records) > 0 {
 			rec := data.Records[0]
-			//err := bot.Post(rec.ToTweet(), logger)
-			//if err == nil {87
-			println(rec.ToTweet())
 			cachedPosts.PostIds = append(cachedPosts.PostIds, rec.RegNum)
 			saveCache(logger, client, cachedPosts)
-			//}*/
+			tweet := rec.ToTweet()
+			logger.Info("Posting", zap.String("tweet", tweet))
+
+			err := bot.Post(tweet)
+			if err != nil {
+				logger.Error("Can't update status", zap.Error(err))
+			}
 		} else {
 			logger.Error("Nothing to post")
 		}
-
 	}
-
 }
 
 func excludeSent(d *miner.Data, toexclude []int) {

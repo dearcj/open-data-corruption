@@ -28,14 +28,8 @@ func (b *Bot) Start(creds *Credentials, logger *zap.Logger) *Bot {
 	return b
 }
 
-func (b *Bot) Post(s string, l *zap.Logger) error {
-	l.Info("Posting", zap.String("tweet", s))
-
+func (b *Bot) Post(s string) error {
 	_, _, err := b.client.Statuses.Update(s, nil)
-	if err != nil {
-		l.Error("Can't update status", zap.Error(err))
-	}
-
 	return err
 }
 
