@@ -27,6 +27,7 @@ func (b *Bot) Start(creds *Credentials, logger *zap.Logger) *Bot {
 	b.client = twitter.NewClient(httpClient)
 	return b
 }
+
 func (b *Bot) Post(s string, l *zap.Logger) error {
 	l.Info("Posting", zap.String("tweet", s))
 

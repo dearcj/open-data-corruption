@@ -111,9 +111,8 @@ func RemoveLastName(s string) string {
 func (r *Record) EnoughData() bool {
 	name := r.FIO
 	jp := r.JobPost
-	article := r.Codex.Article
 	st := r.Punishment
-	return len(name) > 0 && len(jp) > 0 && len(article) > 0 && len(st) > 0
+	return len(name) > 0 && len(jp) > 0 && len(st) > 0
 }
 
 func (r *Record) ToTweet() string {
@@ -198,6 +197,8 @@ func execMining(logger *zap.Logger, link string, output chan *Data) {
 		if err != nil {
 			logger.Error("Can't parse xml", zap.Error(err))
 			return
+		} else {
+			logger.Info("File decoded and parsed")
 		}
 
 		output <- &data
@@ -209,7 +210,7 @@ func StartMining(logger *zap.Logger, link string, interval time.Duration) (chan 
 	var done = make(chan struct{})
 	var onRecieve = make(chan *Data, 1)
 
-	defer logger.Debug("Mining ended")
+	defer logger.Info("Mining ended")
 	go func() {
 		execMining(logger, link, onRecieve)
 

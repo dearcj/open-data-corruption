@@ -5,8 +5,8 @@ import (
 	"flag"
 	botpackage "github.com/dearcj/od-corruption/bot"
 	"github.com/dearcj/od-corruption/miner"
+	"github.com/go-redis/redis"
 	"go.uber.org/zap"
-	"io/ioutil"
 	"os"
 	"sort"
 	"time"
@@ -22,33 +22,39 @@ func main() {
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
-	f, err := os.OpenFile("cached_data.json", os.O_RDONLY|os.O_CREATE, 0666)
-	if err != nil {
-		logger.Error("Can't open cache file", zap.Error(err))
-	}
-
-	b, err := ioutil.ReadFile("cached_data.json") // just pass the file name
-	if err != nil {
-		logger.Error("Can't open cache file", zap.Error(err))
-	}
-
-	cachedPosts, _ := readCachedPosts(b)
-
-	defer f.Close()
-	defer saveCache(f, cachedPosts)
-
 	accessToken := flag.String("ACCESS_TOKEN", "", "access token")
 	accessTokenSecret := flag.String("ACCESS_TOKEN_SECRET", "", "access token")
 	consumerKey := flag.String("CONSUMER_KEY", "", "access token")
 	consumerSecret := flag.String("CONSUMER_SECRET", "", "access token")
+	redisAddress := flag.String("REDIS_ADDRESS", "localhost:6379", "redis database server")
+	redisPassword := flag.String("REDIS_PASSWORD", "", "redis database server")
 	flag.Parse()
+
+	client := redis.NewClient(&redis.Options{
+		Addr:     *redisAddress,
+		Password: *redisPassword,
+		DB:       0,
+	})
+
+	_, err := client.Ping().Result()
+	if err != nil {
+		panic(err)
+	}
+
+	val, _ := client.Get("cached_data").Result()
+	cachedPosts, err := cachedDataFromBytea([]byte(val))
+	if err != nil {
+		panic(err)
+	}
+
+	defer saveCache(logger, client, cachedPosts)
 
 	if *accessToken == "" || *accessTokenSecret == "" || *consumerKey == "" || *consumerSecret == "" {
 		logger.Error("No access tokens")
 		os.Exit(0)
 	}
 
-	bot := botpackage.New().Start(&botpackage.Credentials{
+	_ = botpackage.New().Start(&botpackage.Credentials{
 		AccessToken:       *accessToken,
 		AccessTokenSecret: *accessTokenSecret,
 		ConsumerKey:       *consumerKey,
@@ -59,20 +65,23 @@ func main() {
 		logger.Error("Can't create a twitter bot", zap.Error(err))
 	}
 
-	_, parsed := miner.StartMining(logger, OpenDataLink, 3*time.Hour)
+	_, parsed := miner.StartMining(logger, OpenDataLink, 1*time.Minute)
 
 	for {
 		data := <-parsed
-		filterRecords(data, time.Date(2019, 2, 20, 0, 0, 0, 0, time.UTC))
+		filterRecords(logger, data, time.Date(2019, 2, 20, 0, 0, 0, 0, time.UTC))
 		sortRecords(data)
 		excludeSent(data, cachedPosts.PostIds)
 		if len(data.Records) > 0 {
 			rec := data.Records[0]
-			err := bot.Post(rec.ToTweet(), logger)
-			if err == nil {
-				cachedPosts.PostIds = append(cachedPosts.PostIds, rec.RegNum)
-				saveCache(f, cachedPosts)
-			}
+			//err := bot.Post(rec.ToTweet(), logger)
+			//if err == nil {87
+			println(rec.ToTweet())
+			cachedPosts.PostIds = append(cachedPosts.PostIds, rec.RegNum)
+			saveCache(logger, client, cachedPosts)
+			//}*/
+		} else {
+			logger.Error("Nothing to post")
 		}
 
 	}
@@ -97,18 +106,31 @@ func excludeSent(d *miner.Data, toexclude []int) {
 	d.Records = recs
 }
 
-func filterRecords(d *miner.Data, afterTime time.Time) {
+func filterRecords(logger *zap.Logger, d *miner.Data, afterTime time.Time) {
 	var recs []miner.Record
+	lackDataCount := 0
+	tooOldCount := 0
+
 	for _, x := range d.Records {
-		if x.EnoughData() && x.Date.After(afterTime) {
-			recs = append(recs, x)
+		if !x.Date.After(afterTime) {
+			tooOldCount++
+			continue
 		}
+
+		if !x.EnoughData() {
+			lackDataCount++
+			continue
+		}
+
+		recs = append(recs, x)
 	}
+
+	logger.Info("", zap.Int("Records left", len(recs)), zap.Int("Excluded records by date", tooOldCount), zap.Int("Excluded records by lack of data", lackDataCount))
 
 	d.Records = recs
 }
 
-func readCachedPosts(b []byte) (*CachedPosts, error) {
+func cachedDataFromBytea(b []byte) (*CachedPosts, error) {
 	var cachedPosts = &CachedPosts{}
 
 	if len(b) != 0 {
@@ -121,18 +143,19 @@ func readCachedPosts(b []byte) (*CachedPosts, error) {
 	return cachedPosts, nil
 }
 
-func saveCache(f *os.File, posts *CachedPosts) error {
-	bytea, err := json.Marshal(posts)
+func saveCache(logger *zap.Logger, client *redis.Client, posts *CachedPosts) error {
+	bytes, err := json.Marshal(posts)
 	if err != nil {
 		return err
 	} else {
-		_, err = f.Write(bytea)
+		_, err := client.Set("cached_data", bytes, 0).Result()
 		if err != nil {
+			logger.Error("Can't save cached data to redis", zap.Error(err))
 			return err
-		} else {
-			return nil
 		}
 	}
+	logger.Info("Cache saved to redis")
+	return nil
 }
 
 func sortRecords(d *miner.Data) {
