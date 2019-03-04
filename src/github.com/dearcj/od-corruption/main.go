@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"fmt"
 	botpackage "github.com/dearcj/od-corruption/bot"
 	"github.com/dearcj/od-corruption/miner"
 	"github.com/go-redis/redis"
@@ -18,14 +17,6 @@ const OpenDataLink = "https://data.gov.ua/dataset/78a73a00-4b71-4d03-8fcd-e71909
 
 type CachedPosts struct {
 	PostIds []int `json:"post_ids"`
-}
-
-func fmtDuration(d time.Duration) string {
-	d = d.Round(time.Minute)
-	h := d / time.Hour
-	d -= h * time.Hour
-	m := d / time.Minute
-	return fmt.Sprintf("%02d:%02d", h, m)
 }
 
 func main() {
@@ -87,8 +78,8 @@ func main() {
 
 	for {
 		data := <-parsed
-		filterRecords(logger, data, time.Date(2019, 2, 20, 0, 0, 0, 0, time.UTC))
-		sortRecords(data)
+		FilterRecords(logger, data, time.Date(2019, 2, 20, 0, 0, 0, 0, time.UTC))
+		SortRecords(data)
 		excludeSent(data, cachedPosts.PostIds)
 		if len(data.Records) > 0 {
 			rec := data.Records[0]
@@ -125,7 +116,7 @@ func excludeSent(d *miner.Data, toexclude []int) {
 	d.Records = recs
 }
 
-func filterRecords(logger *zap.Logger, d *miner.Data, afterTime time.Time) {
+func FilterRecords(logger *zap.Logger, d *miner.Data, afterTime time.Time) {
 	var recs []miner.Record
 	lackDataCount := 0
 	tooOldCount := 0
@@ -177,6 +168,6 @@ func saveCache(logger *zap.Logger, client *redis.Client, posts *CachedPosts) err
 	return nil
 }
 
-func sortRecords(d *miner.Data) {
-	sort.Slice(d.Records, func(i, j int) bool { return d.Records[i].Date.After(d.Records[j].Date.Time) })
+func SortRecords(d *miner.Data) {
+	sort.Slice(d.Records, func(i, j int) bool { return d.Records[i].Date.Before(d.Records[j].Date.Time) })
 }

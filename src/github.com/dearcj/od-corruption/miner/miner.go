@@ -9,7 +9,6 @@ import (
 	"golang.org/x/text/encoding/charmap"
 	"io"
 	"io/ioutil"
-	"log"
 	"math/rand"
 	"net/http"
 	"regexp"
@@ -155,29 +154,30 @@ type Record struct {
 	JobPost    string     `xml:"JOBPOST"`
 }
 
-func execMining(logger *zap.Logger, link string, output chan *Data) {
+func ExecMining(logger *zap.Logger, link string, output chan *Data) error {
 	response, err := http.Get(link)
 	if err != nil {
-		println(response)
+		return err
 	}
 
 	body, err := ioutil.ReadAll(response.Body)
 	if err != nil {
 		logger.Error("Failed to read response.body", zap.Error(err))
+		return err
 	}
 
 	zipReader, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
 	if err != nil {
 		logger.Error("Failed to create zip reader", zap.Error(err))
-		return
+		return err
 	}
 
 	for _, zipFile := range zipReader.File {
-		fmt.Println("Reading file:", zipFile.Name)
+		logger.Info("Reading", zap.String("file", zipFile.Name))
 		rc, err := zipFile.Open()
 		if err != nil {
-			log.Println(err)
-			return
+			logger.Error("Failed to open zip file", zap.Error(err))
+			return err
 		}
 		unzippedBytes, err := ioutil.ReadAll(rc)
 		rc.Close()
@@ -196,13 +196,15 @@ func execMining(logger *zap.Logger, link string, output chan *Data) {
 
 		if err != nil {
 			logger.Error("Can't parse xml", zap.Error(err))
-			return
+			return err
 		} else {
 			logger.Info("File decoded and parsed")
 		}
 
 		output <- &data
 	}
+
+	return nil
 }
 
 func StartMining(logger *zap.Logger, link string, interval time.Duration) (chan struct{}, chan *Data) {
@@ -212,7 +214,7 @@ func StartMining(logger *zap.Logger, link string, interval time.Duration) (chan 
 
 	defer logger.Info("Mining ended")
 	go func() {
-		execMining(logger, link, onRecieve)
+		ExecMining(logger, link, onRecieve)
 
 		timer := time.NewTimer(interval)
 	outer:
@@ -222,7 +224,7 @@ func StartMining(logger *zap.Logger, link string, interval time.Duration) (chan 
 				return
 				break outer
 			case <-timer.C:
-				execMining(logger, link, onRecieve)
+				ExecMining(logger, link, onRecieve)
 				timer.Reset(interval)
 				break
 			}
