@@ -78,7 +78,7 @@ func main() {
 
 	for {
 		data := <-parsed
-		FilterRecords(logger, data, time.Date(2019, 2, 20, 0, 0, 0, 0, time.UTC))
+		FilterRecords(logger, data, time.Date(2019, 2, 0, 0, 0, 0, 0, time.UTC))
 		SortRecords(data)
 		excludeSent(data, cachedPosts.PostIds)
 		if len(data.Records) > 0 {
