@@ -1,9 +1,11 @@
 package bot
 
 import (
+	"github.com/dearcj/od-corruption/miner"
 	"github.com/dghubble/go-twitter/twitter"
 	"github.com/dghubble/oauth1"
 	"go.uber.org/zap"
+	"time"
 )
 
 type Credentials struct {
@@ -14,10 +16,11 @@ type Credentials struct {
 }
 
 type Bot struct {
-	client *twitter.Client
+	client  *twitter.Client
+	records []miner.Record
 }
 
-func (b *Bot) Start(creds *Credentials, logger *zap.Logger) *Bot {
+func (b *Bot) Start(creds *Credentials, logger *zap.Logger, delay time.Duration, saveID chan int) (*Bot, chan []miner.Record) {
 	logger.Info("", zap.Any("Creds", creds))
 
 	config := oauth1.NewConfig(creds.ConsumerKey, creds.ConsumerSecret)
@@ -25,7 +28,36 @@ func (b *Bot) Start(creds *Credentials, logger *zap.Logger) *Bot {
 	httpClient := config.Client(oauth1.NoContext, token)
 
 	b.client = twitter.NewClient(httpClient)
-	return b
+	addRecords := make(chan []miner.Record)
+
+	timer := time.NewTimer(delay)
+	go func() {
+		for {
+			select {
+			case newRecs := <-addRecords:
+				b.records = append(b.records, newRecs...)
+				break
+			case <-timer.C:
+				if len(b.records) > 0 {
+					tweet := b.records[0].ToTweet()
+					logger.Info("Posting", zap.String("tweet", tweet))
+					err := b.Post(tweet)
+					if err != nil {
+						logger.Error("Can't update status", zap.Error(err))
+						break
+					}
+
+					saveID <- b.records[0].RegNum
+					b.records = b.records[1:]
+
+				}
+				timer.Reset(delay)
+				break
+			}
+		}
+	}()
+
+	return b, addRecords
 }
 
 func (b *Bot) Post(s string) error {

@@ -29,9 +29,11 @@ func main() {
 	consumerSecret := flag.String("CONSUMER_SECRET", "", "access token")
 	redisAddress := flag.String("REDIS_ADDRESS", "localhost:6379", "redis database server")
 	redisPassword := flag.String("REDIS_PASSWORD", "", "redis database server")
-	delay := flag.String("DELAY", "30s", "redis database server")
+	delay := flag.String("DELAY", "1h", "miner call interval")
+	botDelay := flag.String("BOTDELAY", "1m", "bot post interval")
 
 	flag.Parse()
+	botDelayInTime, err := tparse.AddDuration(time.Unix(0, 0), *botDelay)
 
 	restime, err := tparse.AddDuration(time.Unix(0, 0), *delay)
 	if err != nil {
@@ -62,13 +64,14 @@ func main() {
 		logger.Error("No access tokens")
 		os.Exit(0)
 	}
+	onRecordPosted := make(chan int)
 
-	bot := botpackage.New().Start(&botpackage.Credentials{
+	_, addRecords := botpackage.New().Start(&botpackage.Credentials{
 		AccessToken:       *accessToken,
 		AccessTokenSecret: *accessTokenSecret,
 		ConsumerKey:       *consumerKey,
 		ConsumerSecret:    *consumerSecret,
-	}, logger)
+	}, logger, time.Duration(botDelayInTime.UnixNano()), onRecordPosted)
 
 	if err != nil {
 		logger.Error("Can't create a twitter bot", zap.Error(err))
@@ -77,24 +80,23 @@ func main() {
 	_, parsed := miner.StartMining(logger, OpenDataLink, time.Duration(restime.UnixNano()))
 
 	for {
-		data := <-parsed
-		FilterRecords(logger, data, time.Date(2019, 2, 0, 0, 0, 0, 0, time.UTC))
-		SortRecords(data)
-		excludeSent(data, cachedPosts.PostIds)
-		if len(data.Records) > 0 {
-			rec := data.Records[0]
-			cachedPosts.PostIds = append(cachedPosts.PostIds, rec.RegNum)
-			saveCache(logger, client, cachedPosts)
-			tweet := rec.ToTweet()
-			logger.Info("Posting", zap.String("tweet", tweet))
-
-			err := bot.Post(tweet)
-			if err != nil {
-				logger.Error("Can't update status", zap.Error(err))
+		select {
+		case data := <-parsed:
+			FilterRecords(logger, data, time.Date(2019, 1, 0, 0, 0, 0, 0, time.UTC))
+			SortRecords(data)
+			excludeSent(data, cachedPosts.PostIds)
+			if len(data.Records) > 0 {
+				addRecords <- data.Records
+			} else {
+				logger.Error("Nothing to post")
 			}
-		} else {
-			logger.Error("Nothing to post")
+			break
+		case newRec := <-onRecordPosted:
+			cachedPosts.PostIds = append(cachedPosts.PostIds, newRec)
+			saveCache(logger, client, cachedPosts)
+			break
 		}
+
 	}
 }
 
