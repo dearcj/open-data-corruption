@@ -17,7 +17,7 @@ type Credentials struct {
 
 type Bot struct {
 	client  *twitter.Client
-	records []miner.Record
+	records map[int]miner.Record
 }
 
 func (b *Bot) Start(creds *Credentials, logger *zap.Logger, delay time.Duration, saveID chan int) (*Bot, chan []miner.Record) {
@@ -26,7 +26,7 @@ func (b *Bot) Start(creds *Credentials, logger *zap.Logger, delay time.Duration,
 	config := oauth1.NewConfig(creds.ConsumerKey, creds.ConsumerSecret)
 	token := oauth1.NewToken(creds.AccessToken, creds.AccessTokenSecret)
 	httpClient := config.Client(oauth1.NoContext, token)
-
+	b.records = make(map[int]miner.Record)
 	b.client = twitter.NewClient(httpClient)
 	addRecords := make(chan []miner.Record)
 
@@ -35,11 +35,13 @@ func (b *Bot) Start(creds *Credentials, logger *zap.Logger, delay time.Duration,
 		for {
 			select {
 			case newRecs := <-addRecords:
-				b.records = append(b.records, newRecs...)
+				for _, v := range newRecs {
+					b.records[v.RegNum] = v
+				}
 				break
 			case <-timer.C:
-				if len(b.records) > 0 {
-					tweet := b.records[0].ToTweet()
+				for k, record := range b.records {
+					tweet := record.ToTweet()
 					logger.Info("Posting", zap.String("tweet", tweet))
 					err := b.Post(tweet)
 					if err != nil {
@@ -47,9 +49,9 @@ func (b *Bot) Start(creds *Credentials, logger *zap.Logger, delay time.Duration,
 						break
 					}
 
-					saveID <- b.records[0].RegNum
-					b.records = b.records[1:]
-
+					saveID <- record.RegNum
+					delete(b.records, k)
+					break
 				}
 				timer.Reset(delay)
 				break
