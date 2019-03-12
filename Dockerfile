@@ -5,7 +5,7 @@ WORKDIR /go/src/github.com/dearcj/od-corruption/
 RUN go get -u github.com/golang/dep/...
 RUN dep ensure
 
-EXPOSE 80 443
+EXPOSE 80 443 6379
 
 RUN go install github.com/dearcj/od-corruption/
 
